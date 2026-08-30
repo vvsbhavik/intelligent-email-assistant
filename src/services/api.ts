@@ -42,15 +42,21 @@ export function setStoredSessionId(id: string | null): void {
 
 /**
  * Single source-of-truth for the backend base URL.
- * Set NEXT_PUBLIC_API_URL in your Vercel environment variables to:
+ * Set VITE_API_URL in your Vercel environment variables to:
  *   https://intelligent-email-assistant-api.onrender.com
  * For local dev you can set it to http://localhost:3000 or leave it empty.
  */
-const API_BASE: string =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.NEXT_PUBLIC_API_URL) || "";
+let envApiUrl = typeof import.meta !== "undefined" ? import.meta.env?.VITE_API_URL : undefined;
+
+if (!envApiUrl || envApiUrl.trim() === "" || envApiUrl === "/") {
+  envApiUrl = "https://intelligent-email-assistant-api.onrender.com";
+}
+
+const API_BASE_URL: string = envApiUrl.trim();
+const cleanApiBase = API_BASE_URL.replace(/\/$/, "");
 
 async function customFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const url = input.startsWith("/") ? `${API_BASE}${input}` : input;
+  const url = input.startsWith("/") ? `${cleanApiBase}${input}` : input;
   const headers = new Headers(init.headers || {});
   const sessionId = getStoredSessionId();
 
