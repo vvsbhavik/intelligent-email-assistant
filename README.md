@@ -237,7 +237,7 @@ CREATE POLICY "service_role_activities" ON public.email_activities
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
 3. Add environment variable:
-   - `NEXT_PUBLIC_API_URL` = `https://your-backend.onrender.com`
+   - `VITE_API_URL` = `https://your-backend.onrender.com`
 
 ---
 
