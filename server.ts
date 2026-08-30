@@ -51,7 +51,9 @@ const PORT = 3000;
 // ─── CORS ──────────────────────────────────────────────────────────────────
 const allowedOrigins: string[] = [
   "http://localhost:3000",
+  "https://intelligent-email-assistant.vercel.app",
   "https://intelligent-email-assistant-two.vercel.app",
+  "https://intelligent-email-assistant-api.onrender.com"
 ];
 // Also include FRONTEND_URL env var when set
 if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
@@ -62,20 +64,29 @@ const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // No origin = server-to-server / curl / same-origin – allow
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.endsWith(".vercel.app")) {
+      return callback(null, origin);
     }
-    callback(new Error(`CORS blocked origin: ${origin}`));
+    // Deny CORS gracefully without crashing
+    callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "x-session-id"],
 };
 
 // Register ONCE – before all API routes
 app.use(cors(corsOptions));
-// Explicit OPTIONS preflight handler (same options)
+// Explicit OPTIONS preflight handler
 app.options("*", cors(corsOptions));
+
+// Health Endpoint
+app.get("/health", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    service: "Intelligent Email Assistant API"
+  });
+});
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser(process.env.SESSION_SECRET || "default-insecure-secret"));
@@ -854,6 +865,11 @@ app.get("/api/system/schema-sql", (req: Request, res: Response) => {
  */
 
 async function start() {
+  // Handle unresolved API routes to prevent static HTML from being served for APIs
+  app.use("/api/*", (req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -868,8 +884,9 @@ async function start() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Intelligent Email Assistant server running at http://0.0.0.0:${PORT}`);
+  const portToBind = process.env.PORT ? parseInt(process.env.PORT, 10) : PORT;
+  app.listen(portToBind, "0.0.0.0", () => {
+    console.log(`Intelligent Email Assistant server running at http://0.0.0.0:${portToBind}`);
   });
 }
 
