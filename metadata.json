@@ -1,0 +1,6 @@
+{
+  "name": "Intelligent Email Assistant",
+  "description": "An intelligent, AI-powered email client with Gmail API integration, Gemini summarization & reply generation, Supabase activity logging, and intelligent inbox organization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
