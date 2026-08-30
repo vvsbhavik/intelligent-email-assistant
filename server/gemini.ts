@@ -71,7 +71,7 @@ Respond ONLY with a valid JSON object matching this schema:
     config: {
       responseMimeType: "application/json",
       systemInstruction:
-        "You are an expert executive email intelligence assistant. Extract precise takeaways, eliminate fluff, and pinpoint clear action items.",
+        "You are an expert executive email intelligence assistant. Extract precise takeaways, eliminate fluff, and pinpoint clear action items. You must ONLY use information contained in the email. Do not invent facts or dates.",
     },
   });
 
@@ -194,6 +194,7 @@ Return a valid JSON object matching:
     contents: prompt,
     config: {
       responseMimeType: "application/json",
+      systemInstruction: "You explain complex emails simply. Preserve important facts exactly. Do not change names, dates, amounts, or commitments. Do not invent information."
     },
   });
 
@@ -242,6 +243,7 @@ Respond in JSON format:
     contents: prompt,
     config: {
       responseMimeType: "application/json",
+      systemInstruction: "You are an expert copywriter. The rewritten result must strictly preserve the original meaning. Do not invent new facts."
     },
   });
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Sparkles,
   Bot,
@@ -66,14 +66,19 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
   const [enhancedResult, setEnhancedResult] = useState<string>("");
   const [isRewriting, setIsRewriting] = useState(false);
 
-  // Reset or auto-fetch when selected email changes
+  // Cache state to avoid regenerating on tab switches
+  const currentEmailId = useRef<string | null>(null);
+
   useEffect(() => {
     if (email && isOpen) {
-      setSummaryData(null);
-      setReplyData(null);
-      setEditableReplyBody("");
-      setExplainData(null);
-      handleSummarize();
+      if (currentEmailId.current !== email.id) {
+        currentEmailId.current = email.id;
+        setSummaryData(null);
+        setReplyData(null);
+        setEditableReplyBody("");
+        setExplainData(null);
+        handleSummarize(email);
+      }
     }
   }, [email?.id, isOpen]);
 
@@ -81,16 +86,16 @@ export const AIAssistantPanel: React.FC<AIAssistantPanelProps> = ({
 
   const [aiError, setAiError] = useState<string | null>(null);
 
-  const handleSummarize = async () => {
-    if (!email) return;
+  const handleSummarize = async (targetEmail = email) => {
+    if (!targetEmail) return;
     setIsSummarizing(true);
     setAiError(null);
     try {
       const res = await api.summarizeEmail({
-        subject: email.subject,
-        sender: email.from.name ? `${email.from.name} <${email.from.email}>` : email.from.email,
-        body: email.bodyText || email.snippet,
-        emailId: email.id,
+        subject: targetEmail.subject,
+        sender: targetEmail.from.name ? `${targetEmail.from.name} <${targetEmail.from.email}>` : targetEmail.from.email,
+        body: targetEmail.bodyText || targetEmail.snippet,
+        emailId: targetEmail.id,
       });
       setSummaryData(res);
     } catch (err: any) {

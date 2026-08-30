@@ -27,6 +27,7 @@ interface EmailViewProps {
   onToggleStar: (email: EmailMessage) => void;
   onArchive: (email: EmailMessage) => void;
   onTrash: (email: EmailMessage) => void;
+  onRestore?: (email: EmailMessage) => void;
   onOpenReply: (email: EmailMessage, isReplyAll?: boolean) => void;
   onOpenForward: (email: EmailMessage) => void;
   onTriggerAiSummary: () => void;
@@ -40,6 +41,7 @@ export const EmailView: React.FC<EmailViewProps> = ({
   onToggleStar,
   onArchive,
   onTrash,
+  onRestore,
   onOpenReply,
   onOpenForward,
   onTriggerAiSummary,
@@ -124,11 +126,11 @@ export const EmailView: React.FC<EmailViewProps> = ({
           <button
             type="button"
             id="view-trash-btn"
-            onClick={() => onTrash(email)}
+            onClick={() => email.isTrash && onRestore ? onRestore(email) : onTrash(email)}
             className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors"
-            title="Move to Trash"
+            title={email.isTrash ? "Restore to Inbox" : "Move to Trash"}
           >
-            <Trash2 className="w-4 h-4" />
+            {email.isTrash ? <Archive className="w-4 h-4 rotate-180" /> : <Trash2 className="w-4 h-4" />}
           </button>
         </div>
 

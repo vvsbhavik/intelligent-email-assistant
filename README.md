@@ -92,23 +92,19 @@ intelligent-email-assistant/
 
 ## Live Demo
 
-> Add your deployed Vercel URL here once published.
-> Example: `https://intelligent-email-assistant.vercel.app`
+**Frontend**: `https://intelligent-email-assistant-two.vercel.app`
 
----
 
 ## Backend
 
-The Express backend handles:
-- Google OAuth 2.0 flow (code exchange, token storage — server-side only)
-- Gmail API calls (inbox, threads, send, search, archive, trash)
+**API**: `https://intelligent-email-assistant-api.onrender.com`
+
+- Gmail API calls (inbox, threads, send, search, archive, trash, drafts)
 - Gemini AI invocations (summarize, reply, explain, rewrite)
 - Supabase user upserts and activity logging
-- Persistent session management via httpOnly signed cookies
 
 **All secrets (Google OAuth, Gemini API key, Supabase service role key) remain server-side and are never sent to the browser.**
 
----
 
 ## Supabase Database Setup
 
@@ -241,12 +237,11 @@ CREATE POLICY "service_role_activities" ON public.email_activities
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
 3. Add environment variable:
-   - `VITE_BACKEND_URL` = `https://your-backend.onrender.com`
+   - `NEXT_PUBLIC_API_URL` = `https://your-backend.onrender.com`
 
 ---
 
 ## Google OAuth Publishing Note
-
 > ⚠️ **Important**: While the code is fully production-ready, Google restricts OAuth app access until the app completes **Google's verification process**.
 >
 > - During testing: Only explicitly added **Test Users** can sign in.

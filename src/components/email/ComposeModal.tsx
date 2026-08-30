@@ -74,8 +74,22 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!to.trim() || !subject.trim() || !body.trim()) {
-      setErrorMessage("Please fill in recipient, subject, and email body.");
+    if (!to.trim()) {
+      setErrorMessage("Please specify at least one recipient.");
+      return;
+    }
+
+    // Check for basic email validity (allowing names like "John <john@doe.com>")
+    const recipients = to.split(',').map(r => r.trim()).filter(Boolean);
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || /<[^\s@]+@[^\s@]+\.[^\s@]+>$/.test(email);
+
+    if (!recipients.every(isValidEmail)) {
+      setErrorMessage("Please ensure all recipients are valid email addresses separated by commas.");
+      return;
+    }
+
+    if (!subject.trim() && !body.trim()) {
+      setErrorMessage("Cannot send an empty email. Please provide a subject or body.");
       return;
     }
 
@@ -135,6 +149,29 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({
       setErrorMessage(err.message || "Failed to polish text");
     } finally {
       setIsEnhancing(false);
+    }
+  };
+
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const handleSaveDraft = async () => {
+    setIsSavingDraft(true);
+    setErrorMessage("");
+    try {
+      await api.saveDraft({
+        to,
+        cc,
+        bcc,
+        subject,
+        body,
+        threadId,
+        inReplyTo: inReplyTo?.id,
+        draftId: inReplyTo?.id, // We use inReplyTo.id as the potential draftId if we're editing an existing draft
+      });
+      onClose();
+    } catch (err: any) {
+      setErrorMessage(err.message || "Failed to save draft");
+    } finally {
+      setIsSavingDraft(false);
     }
   };
 
@@ -420,6 +457,16 @@ export const ComposeModal: React.FC<ComposeModalProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="compose-save-draft-btn"
+                  onClick={handleSaveDraft}
+                  disabled={isSavingDraft || isSending}
+                  className="px-4 py-2 text-slate-300 hover:bg-slate-800 rounded-xl text-xs md:text-sm transition-colors flex items-center gap-2"
+                  title="Save draft"
+                >
+                  {isSavingDraft ? "Saving..." : "Save Draft"}
+                </button>
                 <button
                   type="button"
                   id="compose-discard-btn"

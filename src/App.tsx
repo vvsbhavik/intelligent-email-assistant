@@ -66,7 +66,7 @@ const MainDashboard: React.FC = () => {
       setEmails(res.messages || []);
     } catch (err: any) {
       console.warn("Could not load emails:", err.message || err);
-      if (err.message && err.message.includes("Unauthorized")) {
+      if (err.message && (err.message.includes("expired") || err.message.includes("Unauthorized"))) {
         await refreshSession();
       }
     } finally {
@@ -80,6 +80,20 @@ const MainDashboard: React.FC = () => {
 
   // Handle single email selection & thread fetch
   const handleSelectEmail = async (email: EmailMessage) => {
+    if (email.labelIds?.includes("DRAFT") || currentFolder === "drafts") {
+      setComposeInitialData({
+        to: email.to.map(t => t.email).join(", "),
+        cc: email.cc?.map(t => t.email).join(", ") || "",
+        bcc: email.bcc?.map(t => t.email).join(", ") || "",
+        subject: email.subject,
+        body: email.bodyText || email.snippet,
+        threadId: email.threadId,
+        inReplyTo: email.id, // We use this to track the draft message ID
+      });
+      setIsComposeOpen(true);
+      return;
+    }
+
     setSelectedEmail(email);
     // Mark as read if not already read
     if (!email.isRead) {
@@ -147,6 +161,7 @@ const MainDashboard: React.FC = () => {
       if (selectedEmail?.id === email.id) {
         setSelectedEmail(null);
       }
+      showNotification("Conversation archived");
     } catch (err) {
       console.error("Failed to archive email", err);
     }
@@ -161,8 +176,24 @@ const MainDashboard: React.FC = () => {
       if (selectedEmail?.id === email.id) {
         setSelectedEmail(null);
       }
+      showNotification("Conversation moved to Trash");
     } catch (err) {
       console.error("Failed to trash email", err);
+    }
+  };
+
+  // Restore
+  const handleRestore = async (email: EmailMessage, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await api.untrashEmail(email.id);
+      setEmails((prev) => prev.filter((item) => item.id !== email.id));
+      if (selectedEmail?.id === email.id) {
+        setSelectedEmail(null);
+      }
+      showNotification("Conversation restored to Inbox");
+    } catch (err) {
+      console.error("Failed to restore email", err);
     }
   };
 
@@ -250,6 +281,13 @@ const MainDashboard: React.FC = () => {
     setIsComposeOpen(true);
   };
 
+  const [notification, setNotification] = useState<{message: string, type: "success" | "error"} | null>(null);
+
+  const showNotification = (message: string, type: "success" | "error" = "success") => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-3">
@@ -321,10 +359,15 @@ const MainDashboard: React.FC = () => {
               onToggleStar={handleToggleStar}
               onArchive={handleArchive}
               onTrash={handleTrash}
+              onRestore={handleRestore}
               onOpenReply={handleOpenReply}
               onOpenForward={handleOpenForward}
-              onTriggerAiSummary={() => setIsAiPanelOpen(true)}
-              onTriggerAiReply={() => setIsAiPanelOpen(true)}
+              onTriggerAiSummary={() => {
+                setIsAiPanelOpen(true);
+              }}
+              onTriggerAiReply={() => {
+                setIsAiPanelOpen(true);
+              }}
             />
           ) : (
             <EmailList
@@ -362,6 +405,7 @@ const MainDashboard: React.FC = () => {
         isOpen={isComposeOpen}
         onClose={() => setIsComposeOpen(false)}
         onSendSuccess={() => {
+          showNotification("Email sent successfully!");
           loadEmails();
         }}
         initialTo={composeInitialData.to}
@@ -375,6 +419,17 @@ const MainDashboard: React.FC = () => {
         isOpen={isStatusModalOpen}
         onClose={() => setIsStatusModalOpen(false)}
       />
+
+      {/* Global Notification Toast */}
+      {notification && (
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-full shadow-lg border text-sm font-medium flex items-center gap-2 animate-in slide-in-from-bottom-5 ${
+          notification.type === "success"
+            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+            : "bg-rose-500/10 text-rose-400 border-rose-500/20"
+        }`}>
+          {notification.message}
+        </div>
+      )}
     </div>
   );
 };

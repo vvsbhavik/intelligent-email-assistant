@@ -42,12 +42,12 @@ export function setStoredSessionId(id: string | null): void {
 
 /**
  * Single source-of-truth for the backend base URL.
- * Set VITE_BACKEND_URL in your Vercel environment variables to:
+ * Set NEXT_PUBLIC_API_URL in your Vercel environment variables to:
  *   https://intelligent-email-assistant-api.onrender.com
- * For local dev leave it unset (empty string = same-origin Express server).
+ * For local dev you can set it to http://localhost:3000 or leave it empty.
  */
 const API_BASE: string =
-  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BACKEND_URL) || "";
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.NEXT_PUBLIC_API_URL) || "";
 
 async function customFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const url = input.startsWith("/") ? `${API_BASE}${input}` : input;
@@ -72,14 +72,28 @@ async function customFetch(input: string, init: RequestInit = {}): Promise<Respo
       setStoredSessionId(null);
     }
 
+    if (!res.ok) {
+      let errorMessage = "Something went wrong. Please try again.";
+      if (res.status === 401) errorMessage = "Your Gmail session has expired. Please sign in again.";
+      else if (res.status === 403) errorMessage = "Gmail permission is required for this action.";
+      else if (res.status === 404) errorMessage = "Email could not be found.";
+      else if (res.status === 429) errorMessage = "Too many Gmail requests. Please try again shortly.";
+      else if (res.status === 500) errorMessage = "Something went wrong. Please try again.";
+      else {
+        try {
+          const errData = await res.json();
+          if (errData.error) errorMessage = errData.error;
+        } catch {}
+      }
+      throw new Error(errorMessage);
+    }
+
     return res;
   } catch (err: any) {
-    // Convert raw network errors into friendly messages
-    const message =
-      err?.message === "Failed to fetch"
-        ? "Backend unavailable. Please check your connection or try again."
-        : err?.message || "Network error. Please try again.";
-    throw new Error(message);
+    if (err.message === "Failed to fetch" || err.message.includes("NetworkError")) {
+      throw new Error("Unable to connect to the email service.");
+    }
+    throw err;
   }
 }
 
@@ -174,8 +188,10 @@ export const api = {
 
     const res = await customFetch(`/api/emails?${query.toString()}`);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to fetch emails");
+      if (res.status === 401 || res.status === 403) {
+        throw new Error("Your Gmail session has expired. Please sign in again.");
+      }
+      throw new Error("Unable to load your inbox.");
     }
     return res.json();
   },
@@ -183,8 +199,10 @@ export const api = {
   async getEmailById(id: string): Promise<{ email: EmailMessage; thread?: EmailThread }> {
     const res = await customFetch(`/api/emails/${id}`);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to fetch email details");
+      if (res.status === 401 || res.status === 403) {
+        throw new Error("Your Gmail session has expired. Please sign in again.");
+      }
+      throw new Error("Unable to load email.");
     }
     return res.json();
   },
@@ -245,6 +263,28 @@ export const api = {
     return res.json();
   },
 
+  async saveDraft(payload: {
+    to: string;
+    cc?: string;
+    bcc?: string;
+    subject: string;
+    body: string;
+    threadId?: string;
+    inReplyTo?: string;
+    draftId?: string;
+  }): Promise<{ success: boolean; message: string; draftId?: string }> {
+    const res = await customFetch("/api/emails/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to save draft");
+    }
+    return res.json();
+  },
+
   // AI API
   async summarizeEmail(payload: {
     subject: string;
@@ -259,8 +299,7 @@ export const api = {
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to generate AI summary");
+      throw new Error("AI analysis failed. Please try again.");
     }
     const data = await res.json();
     return data.result;

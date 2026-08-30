@@ -525,6 +525,78 @@ export async function sendGmailEmail(accessToken: string, payload: SendEmailPayl
   return await response.json();
 }
 
+export async function saveGmailDraft(accessToken: string, payload: SendEmailPayload, draftId?: string): Promise<{ id: string; message: { id: string; threadId: string } }> {
+  const lines: string[] = [
+    payload.to ? `To: ${payload.to}` : "",
+    payload.cc ? `Cc: ${payload.cc}` : "",
+    payload.bcc ? `Bcc: ${payload.bcc}` : "",
+    payload.subject ? `Subject: =?utf-8?B?${Buffer.from(payload.subject, "utf-8").toString("base64")}?=` : "",
+    "MIME-Version: 1.0",
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    payload.inReplyTo ? `In-Reply-To: ${payload.inReplyTo}` : "",
+    payload.references ? `References: ${payload.references}` : "",
+    "",
+    payload.body.includes("<") ? payload.body : payload.body.replace(/\n/g, "<br/>"),
+  ].filter(Boolean);
+
+  const rawRfc = lines.join("\r\n");
+  const rawBase64Url = Buffer.from(rawRfc, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  const bodyData: any = { message: { raw: rawBase64Url } };
+  if (payload.threadId) bodyData.message.threadId = payload.threadId;
+
+  let url = "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
+  let method = "POST";
+
+  let resolvedDraftId = draftId;
+
+  // If a draftId is provided, we might need to check if it's actually a messageId
+  // and resolve the real draftId if the user is editing an existing draft from the UI.
+  if (resolvedDraftId) {
+    try {
+      const listRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const found = listData.drafts?.find((d: any) => d.message?.id === resolvedDraftId || d.id === resolvedDraftId);
+        if (found) {
+          resolvedDraftId = found.id;
+          url = `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${resolvedDraftId}`;
+          method = "PUT";
+        } else {
+          // It's a new draft based on a thread, not an existing draft
+          resolvedDraftId = undefined;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not resolve draft ID, creating new draft.");
+      resolvedDraftId = undefined;
+    }
+  }
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(bodyData),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to save draft through Gmail API");
+  }
+
+  return await response.json();
+}
+
 /**
  * Rich Sandbox / Demo In-Memory Store
  * Used when testing without live Google OAuth keys or in demo mode.

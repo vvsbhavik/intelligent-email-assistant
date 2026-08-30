@@ -26,6 +26,7 @@ import {
   untrashGmailMessage,
   deleteGmailMessage,
   sendGmailEmail,
+  saveGmailDraft,
   getDemoEmails,
   updateDemoEmail,
   addDemoEmail,
@@ -48,35 +49,20 @@ const app = express();
 const PORT = 3000;
 
 // ─── CORS ──────────────────────────────────────────────────────────────────
-// Explicit known-good origins (hardcoded so they work even if env var is missing)
 const allowedOrigins: string[] = [
   "http://localhost:3000",
-  "http://localhost:5173",
-  // Production & preview Vercel deployments for this project
   "https://intelligent-email-assistant-two.vercel.app",
-  "https://intelligent-email-assistant.vercel.app",
-  "https://intelligent-email-assistant-4d4z7ghjs-vvsbhaviks-projects.vercel.app",
-  "https://intelligent-email-assistant-fktda4ggh-vvsbhaviks-projects.vercel.app",
-  "https://intelligent-email-assistant-git-main-vvsbhaviks-projects.vercel.app",
 ];
-// Also include FRONTEND_URL env var when set (e.g. for future custom domains)
+// Also include FRONTEND_URL env var when set
 if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
   allowedOrigins.push(process.env.FRONTEND_URL);
-}
-
-/**
- * Returns true for Vercel preview-deploy URLs that belong to this project.
- * Pattern: https://intelligent-email-assistant-<hash>-vvsbhaviks-projects.vercel.app
- */
-function isAllowedVercelPreview(origin: string): boolean {
-  return /^https:\/\/intelligent-email-assistant[a-z0-9-]*\.vercel\.app$/.test(origin);
 }
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // No origin = server-to-server / curl / same-origin – allow
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || isAllowedVercelPreview(origin)) {
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     callback(new Error(`CORS blocked origin: ${origin}`));
@@ -121,7 +107,6 @@ function getSession(req: Request): SessionData | null {
   const sessionId = (req.headers["x-session-id"] as string) || bearerToken || req.signedCookies?.["iea_session"] || req.cookies?.["iea_session"];
   
   if (!sessionId) {
-    console.log("[getSession] No sessionId found in headers, signedCookies, or cookies");
     return null;
   }
 
@@ -143,7 +128,7 @@ function getSession(req: Request): SessionData | null {
   }
 
   if (!session) {
-    console.log(`[getSession] SessionId ${sessionId} found, but no matching session in store`);
+    // Session not found
   }
 
   return session || null;
@@ -608,6 +593,47 @@ app.post("/api/emails/send", requireAuth, async (req: Request, res: Response) =>
   }
 });
 
+// Save Draft
+app.post("/api/emails/draft", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const session = (req as any).session as SessionData;
+    const { to, cc, bcc, subject, body, threadId, inReplyTo, draftId } = req.body;
+
+    if (session.isDemo || !session.accessToken) {
+      // In demo mode, we could just return a success message or store locally
+      await logEmailActivity(session.userId, `demo-draft-${Date.now()}`, "draft_saved", { demo: true });
+      return res.json({
+        success: true,
+        message: "Draft saved successfully (Sandbox)",
+        draftId: `demo-draft-${Date.now()}`,
+      });
+    }
+
+    const result = await saveGmailDraft(session.accessToken, {
+      to: to || "",
+      cc,
+      bcc,
+      subject: subject || "",
+      body: body || "",
+      threadId,
+      inReplyTo,
+    }, draftId);
+
+    await logEmailActivity(session.userId, result.id, "draft_saved", {
+      threadId: result.message.threadId,
+    });
+
+    res.json({
+      success: true,
+      message: "Draft saved successfully via Gmail API",
+      draftId: result.id,
+    });
+  } catch (err: any) {
+    console.error("Save draft error:", err);
+    res.status(500).json({ error: err.message || "Failed to save draft" });
+  }
+});
+
 /**
  * ----------------------------------------------------
  * AI ENDPOINTS (GEMINI API)
@@ -620,8 +646,11 @@ app.post("/api/ai/summarize", requireAuth, async (req: Request, res: Response) =
     const session = (req as any).session as SessionData;
     const { subject, sender, body, threadHistory, emailId } = req.body;
 
-    if (!body) {
+    if (!body || typeof body !== "string") {
       return res.status(400).json({ error: "Email body is required for summarization." });
+    }
+    if (body.length > 50000) {
+      return res.status(413).json({ error: "Email content is too large to process." });
     }
 
     const result = await summarizeEmail({
@@ -640,10 +669,23 @@ app.post("/api/ai/summarize", requireAuth, async (req: Request, res: Response) =
 
     res.json({ success: true, result });
   } catch (err: any) {
-    console.error("Gemini summarize error:", err);
-    res.status(500).json({ error: err.message || "Failed to generate AI summary" });
+    console.error("Gemini summarize error:", err.message);
+    const msg = err.message || "";
+    if (msg.includes("429") || msg.includes("503") || msg.includes("unavailable") || msg.includes("quota")) {
+      return res.status(503).json({ error: "AI service is temporarily unavailable. Please try again." });
+    }
+    res.status(500).json({ error: "Unable to process this email." });
   }
 });
+
+function handleAIError(err: any, res: Response) {
+  console.error("Gemini AI error:", err.message);
+  const msg = err.message || "";
+  if (msg.includes("429") || msg.includes("503") || msg.includes("unavailable") || msg.includes("quota")) {
+    return res.status(503).json({ error: "AI service is temporarily unavailable. Please try again." });
+  }
+  return res.status(500).json({ error: "Unable to process this email." });
+}
 
 // Generate AI Reply
 app.post("/api/ai/reply", requireAuth, async (req: Request, res: Response) => {
@@ -651,8 +693,11 @@ app.post("/api/ai/reply", requireAuth, async (req: Request, res: Response) => {
     const session = (req as any).session as SessionData;
     const { subject, sender, body, tone, userInstructions, userDraft, keyPointsToInclude, emailId } = req.body;
 
-    if (!body) {
+    if (!body || typeof body !== "string") {
       return res.status(400).json({ error: "Email body is required to generate a reply." });
+    }
+    if (body.length > 50000) {
+      return res.status(413).json({ error: "Email content is too large to process." });
     }
 
     const result = await generateReply({
@@ -671,8 +716,7 @@ app.post("/api/ai/reply", requireAuth, async (req: Request, res: Response) => {
 
     res.json({ success: true, result });
   } catch (err: any) {
-    console.error("Gemini reply error:", err);
-    res.status(500).json({ error: err.message || "Failed to generate AI reply" });
+    handleAIError(err, res);
   }
 });
 
@@ -682,8 +726,11 @@ app.post("/api/ai/explain", requireAuth, async (req: Request, res: Response) => 
     const session = (req as any).session as SessionData;
     const { subject, sender, body, emailId } = req.body;
 
-    if (!body) {
+    if (!body || typeof body !== "string") {
       return res.status(400).json({ error: "Email body is required." });
+    }
+    if (body.length > 50000) {
+      return res.status(413).json({ error: "Email content is too large to process." });
     }
 
     const result = await explainEmail(subject || "No Subject", sender || "Sender", body);
@@ -694,7 +741,7 @@ app.post("/api/ai/explain", requireAuth, async (req: Request, res: Response) => 
 
     res.json({ success: true, result });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to explain email" });
+    handleAIError(err, res);
   }
 });
 
@@ -702,14 +749,17 @@ app.post("/api/ai/explain", requireAuth, async (req: Request, res: Response) => 
 app.post("/api/ai/enhance", requireAuth, async (req: Request, res: Response) => {
   try {
     const { text, mode } = req.body;
-    if (!text) {
+    if (!text || typeof text !== "string") {
       return res.status(400).json({ error: "Text is required." });
+    }
+    if (text.length > 50000) {
+      return res.status(413).json({ error: "Text content is too large to process." });
     }
 
     const result = await enhanceEmailText({ text, mode: mode || "professional" });
     res.json({ success: true, result });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to enhance text" });
+    handleAIError(err, res);
   }
 });
 
@@ -717,14 +767,17 @@ app.post("/api/ai/enhance", requireAuth, async (req: Request, res: Response) => 
 app.post("/api/ai/generate-subject", requireAuth, async (req: Request, res: Response) => {
   try {
     const { body, currentSubject } = req.body;
-    if (!body) {
+    if (!body || typeof body !== "string") {
       return res.status(400).json({ error: "Body content is required to generate subjects." });
+    }
+    if (body.length > 50000) {
+      return res.status(413).json({ error: "Email content is too large to process." });
     }
 
     const result = await generateSubjectLines(body, currentSubject);
     res.json({ success: true, result });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Failed to generate subjects" });
+    handleAIError(err, res);
   }
 });
 
@@ -732,14 +785,17 @@ app.post("/api/ai/generate-subject", requireAuth, async (req: Request, res: Resp
 app.post("/api/ai/smart-search", requireAuth, async (req: Request, res: Response) => {
   try {
     const { query } = req.body;
-    if (!query) {
+    if (!query || typeof query !== "string") {
       return res.status(400).json({ error: "Query is required." });
+    }
+    if (query.length > 1000) {
+      return res.status(413).json({ error: "Search query is too large to process." });
     }
 
     const result = await smartSearchQuery(query);
     res.json({ success: true, result });
   } catch (err: any) {
-    res.status(500).json({ error: err.message || "Smart search processing failed" });
+    handleAIError(err, res);
   }
 });
 
