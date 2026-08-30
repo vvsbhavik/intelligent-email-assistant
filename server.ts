@@ -47,28 +47,48 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-const allowedOrigins = [
+// ─── CORS ──────────────────────────────────────────────────────────────────
+// Explicit known-good origins (hardcoded so they work even if env var is missing)
+const allowedOrigins: string[] = [
   "http://localhost:3000",
+  "http://localhost:5173",
+  // Production & preview Vercel deployments for this project
+  "https://intelligent-email-assistant-two.vercel.app",
   "https://intelligent-email-assistant.vercel.app",
+  "https://intelligent-email-assistant-4d4z7ghjs-vvsbhaviks-projects.vercel.app",
   "https://intelligent-email-assistant-fktda4ggh-vvsbhaviks-projects.vercel.app",
   "https://intelligent-email-assistant-git-main-vvsbhaviks-projects.vercel.app",
-  process.env.FRONTEND_URL,
-].filter(Boolean) as string[];
+];
+// Also include FRONTEND_URL env var when set (e.g. for future custom domains)
+if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
+/**
+ * Returns true for Vercel preview-deploy URLs that belong to this project.
+ * Pattern: https://intelligent-email-assistant-<hash>-vvsbhaviks-projects.vercel.app
+ */
+function isAllowedVercelPreview(origin: string): boolean {
+  return /^https:\/\/intelligent-email-assistant[a-z0-9-]*\.vercel\.app$/.test(origin);
+}
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`CORS blocked origin: ${origin}`));
+    // No origin = server-to-server / curl / same-origin – allow
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || isAllowedVercelPreview(origin)) {
+      return callback(null, true);
     }
+    callback(new Error(`CORS blocked origin: ${origin}`));
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"],
 };
 
+// Register ONCE – before all API routes
 app.use(cors(corsOptions));
+// Explicit OPTIONS preflight handler (same options)
 app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
