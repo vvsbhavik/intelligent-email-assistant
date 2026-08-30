@@ -58,9 +58,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async () => {
     try {
       const { url } = await api.getGoogleOAuthUrl();
+      // Full page redirect — avoids popup blockers and Firebase auth entirely
       window.location.href = url;
     } catch (err: any) {
-      throw new Error(err.message || "Failed to start Google sign in");
+      throw new Error(err.message || "Google authentication failed. Please try again.");
     }
   };
 

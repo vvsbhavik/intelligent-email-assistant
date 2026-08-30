@@ -40,7 +40,14 @@ export function setStoredSessionId(id: string | null): void {
   } catch {}
 }
 
-const API_BASE = (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BACKEND_URL) || "";
+/**
+ * Single source-of-truth for the backend base URL.
+ * Set VITE_BACKEND_URL in your Vercel environment variables to:
+ *   https://intelligent-email-assistant-api.onrender.com
+ * For local dev leave it unset (empty string = same-origin Express server).
+ */
+const API_BASE: string =
+  (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BACKEND_URL) || "";
 
 async function customFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const url = input.startsWith("/") ? `${API_BASE}${input}` : input;
@@ -54,17 +61,26 @@ async function customFetch(input: string, init: RequestInit = {}): Promise<Respo
     }
   }
 
-  const res = await fetch(url, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
+  try {
+    const res = await fetch(url, {
+      ...init,
+      headers,
+      credentials: "include",
+    });
 
-  if (res.status === 401) {
-    setStoredSessionId(null);
+    if (res.status === 401) {
+      setStoredSessionId(null);
+    }
+
+    return res;
+  } catch (err: any) {
+    // Convert raw network errors into friendly messages
+    const message =
+      err?.message === "Failed to fetch"
+        ? "Backend unavailable. Please check your connection or try again."
+        : err?.message || "Network error. Please try again.";
+    throw new Error(message);
   }
-
-  return res;
 }
 
 export const api = {
@@ -91,6 +107,7 @@ export const api = {
       return data;
     } catch {
       setStoredSessionId(null);
+      // Never propagate "Failed to fetch" as a crash — return unauthenticated gracefully
       return {
         authenticated: false,
         user: null,
@@ -102,12 +119,16 @@ export const api = {
   },
 
   async getGoogleOAuthUrl(): Promise<{ url: string; redirectUri: string }> {
-    const res = await customFetch("/api/auth/google/url");
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to generate Google OAuth URL");
+    try {
+      const res = await customFetch("/api/auth/google/url");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to generate Google OAuth URL");
+      }
+      return res.json();
+    } catch (err: any) {
+      throw new Error(err.message || "Google authentication failed. Please try again.");
     }
-    return res.json();
   },
 
   async loginDemo(): Promise<{ success: boolean; user: User; isDemo: boolean; sessionId: string }> {
@@ -338,9 +359,14 @@ export const api = {
   },
 
   async getSystemStatus(): Promise<SystemStatus> {
-    const res = await customFetch("/api/system/status");
-    if (!res.ok) throw new Error("Failed to fetch system status");
-    return res.json();
+    try {
+      const res = await customFetch("/api/system/status");
+      if (!res.ok) throw new Error("Failed to fetch system status");
+      return res.json();
+    } catch (err: any) {
+      // Return a safe degraded status rather than crashing the app
+      throw new Error(err.message || "Backend unavailable. Please try again.");
+    }
   },
 
   async getSupabaseSchemaSql(): Promise<string> {
