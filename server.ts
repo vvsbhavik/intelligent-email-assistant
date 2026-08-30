@@ -50,31 +50,32 @@ const PORT = 3000;
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-  // Production Vercel frontend
+  // Production Vercel frontends
+  "https://intelligent-email-assistant.vercel.app",
   "https://intelligent-email-assistant-4d4z7ghjs-vvsbhaviks-projects.vercel.app",
+  "https://intelligent-email-assistant-fktda4ggh-vvsbhaviks-projects.vercel.app",
 ];
 // Also allow any additional origin specified via env var (e.g. future custom domain)
 if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
   allowedOrigins.push(process.env.FRONTEND_URL);
 }
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (curl, Postman, same-origin server calls)
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.warn(`[CORS] Blocked request from origin: ${origin}`);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-session-id"],
-  })
-);
-// Respond to all OPTIONS preflight requests immediately
-app.options("*", cors());
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman, same-origin server calls)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Blocked request from origin: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-session-id"],
+};
+app.use(cors(corsOptions));
+// Respond to all OPTIONS preflight requests using the same corsOptions
+app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser(process.env.SESSION_SECRET || "default-insecure-secret"));
